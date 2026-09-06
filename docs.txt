@@ -1,0 +1,3 @@
+Error Codes
+16: General allocation error
+42: Windowing error
