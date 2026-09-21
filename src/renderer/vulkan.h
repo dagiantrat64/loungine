@@ -26,11 +26,24 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "vulkan.h"
-
 uint32_t startX = 1280;
 uint32_t startY = 720;
 SDL_Window *window;
+
+// Vulkan objects
+VkInstance instance = VK_NULL_HANDLE;
+VkPhysicalDevice *physicalDevices = NULL;
+VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+VkSurfaceKHR surface = VK_NULL_HANDLE;
+uint32_t qfIndex = UINT32_MAX;
+VkDevice device = VK_NULL_HANDLE;
+
+
+void handleError(int id) {
+
+}
+
+void cleanup();
 
 #include "init.h"
 

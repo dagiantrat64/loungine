@@ -1,16 +1,12 @@
 #ifndef LOUNGINE_INIT_H
 #define LOUNGINE_INIT_H
 
-static void createWindow() {
-	// init sdl
-	if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) exit(42);
-	// and actually create the window...
-	window = SDL_CreateWindow(APP_NAME, startX, startY, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
-	if (!window) exit(42);
-}
+inline uint32_t getDeviceScore(VkPhysicalDeviceType deviceType);
 
-static void createInstance() {
-	// give vulkan's nosy ass some info on ur app
+void createInstance() {
+	// load standard pfns
+	if (!volkInitialize()) handleError(32);
+	// All set to constants
 	VkApplicationInfo appInfo = {
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.apiVersion = VULKAN_VERSION,
@@ -22,22 +18,279 @@ static void createInstance() {
 
 	uint32_t extensionCount = 0;
 	const char *const *requiredExtensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount); // i need...
-	const char *requestedExtensions[] = {
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
-	}; // i want...
-	size_t requiredExtensionsSize = extensionCount * sizeof *requiredExtensions;
-	// combined buffer for extensions
-	const char **extensionBuffer = malloc(requiredExtensionsSize + sizeof requestedExtensions);
-	if (!extensionBuffer) exit(16);
-	// copy the required extensions
-	memcpy(extensionBuffer, requiredExtensions, requiredExtensionsSize);
-	// then the requested
-	memcpy(extensionBuffer + requiredExtensionsSize, requestedExtensions, sizeof requestedExtensions);
+	// Since there's only 1 requested extension and it could be nothing everything was wrapped in an ifndef
+	const char **extBuffer; // just in case this will exist
 
+	// set the initial, constant fields
 	VkInstanceCreateInfo instanceCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+		.pApplicationInfo = &appInfo
 	};
+	// If doing a debug build, enable validation
+#ifndef NDEBUG
+	{
+		const char *requestedExtensions[] = {
+			VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+		}; // I want...
+		const size_t requiredExtensionsSize = extensionCount * sizeof *requiredExtensions;
+		// combined buffer for extensions
+		extBuffer = malloc(requiredExtensionsSize + sizeof requestedExtensions);
+		if (!extBuffer) handleError(16);
+		// copy the required extensions
+		memcpy(extBuffer, requiredExtensions, requiredExtensionsSize);
+		// then the requested ones
+		memcpy(extBuffer + requiredExtensionsSize, requestedExtensions, sizeof requestedExtensions);
+
+		// Now for layers, since no required layers only 1 buffer necessary
+		const char *requestedLayers[] = {
+			"VK_LAYER_KHRONOS_validation"
+		};
+
+		// Set validation related fields
+		instanceCreateInfo.ppEnabledExtensionNames = extBuffer;
+		instanceCreateInfo.ppEnabledLayerNames = requestedLayers;
+		instanceCreateInfo.enabledLayerCount = 1;
+		instanceCreateInfo.enabledExtensionCount = extensionCount + 1;
+	}
+	// And for release skip
+#else
+	instanceCreateInfo.ppEnabledExtensionNames = requiredExtensions;
+	instanceCreateInfo.enabledExtensionCount = extensionCount;
+#endif
+	// If an Apple device, we need the portability enumeration bit for MoltenVK
+#ifdef APPLE
+	instanceCreateInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
+	if (vkCreateInstance(&instanceCreateInfo, NULL, &instance) != VK_SUCCESS) exit(32);
+
+	// Load instance PFNs
+	volkLoadInstance(instance);
+#ifndef NDEBUG
+	free(extBuffer);
+#endif
+}
+
+void createWindow() {
+	// init sdl
+	if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) handleError(42);
+	// and actually create the window...
+	window = SDL_CreateWindow(APP_NAME, startX, startY, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
+	if (!window) handleError(42);
+	if (!SDL_Vulkan_CreateSurface(window, instance, NULL, &surface)) handleError(42);
+}
+
+void selectPhysicalDevice() {
+	// Standard 2 call for enumeration, first a count and then a VLA of the objects
+	/* Here physical devices are enumerated to be selected. This is the initial automatic selection that should be
+	 * changeable by the end user. */
+	uint32_t deviceCount;
+	if (vkEnumeratePhysicalDevices(instance, &deviceCount, NULL) != VK_SUCCESS) handleError(17);
+	physicalDevices = malloc(deviceCount * sizeof *physicalDevices);
+	if (vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices) != VK_SUCCESS) handleError(17);
+
+	VkPhysicalDeviceType selectedDeviceScore = VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM;
+	uint32_t selectedDeviceMaxImage = 0;
+	VkDeviceSize selectedVRAM = 0;
+	uint32_t selectedDeviceIndex;
+
+	for (uint32_t i = 0; i < deviceCount; ++i) {
+		const char *requiredExts[] = {
+			VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+			// Extension instead of feature if targeting Vulkan 1.2 as a baseline
+			VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Needed in general
+			VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, // Also needed for 1.2
+			VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME, // " "
+		};
+		uint32_t reqExtCount = sizeof requiredExts / sizeof *requiredExts;
+
+		// Note: VkExtensionProperties is per extension
+		uint32_t extCount;
+		if (vkEnumerateDeviceExtensionProperties(physicalDevices[i], NULL, &extCount, NULL) != VK_SUCCESS)
+			handleError(17);
+		VkExtensionProperties *extProperties = malloc(sizeof *extProperties * extCount);
+		if (!extProperties) handleError(16);
+		if (vkEnumerateDeviceExtensionProperties(physicalDevices[i], NULL, &extCount, extProperties) != VK_SUCCESS)
+			handleError(17);
+
+		// check if all extensions are listed
+		uint32_t supportedExts = 0;
+		for (size_t j = 0; j < extCount; ++j) {
+			for (size_t k = 0; k < sizeof requiredExts / sizeof *requiredExts; ++k) {
+				if (!strcmp(extProperties[j].extensionName, requiredExts[k])) {
+					supportedExts++;
+				}
+			}
+		}
+		free(extProperties);
+		if (supportedExts < reqExtCount) {
+			continue;
+		}
+
+		// Now check if said extensions are ACTUALLY supported
+		// NOTE: When adding required extensions, if they have features, make sure to check for them here
+		VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamicRenderingFeatures = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR
+		};
+		VkPhysicalDeviceSynchronization2FeaturesKHR synchronization2Features = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+			.pNext = &dynamicRenderingFeatures
+		};
+		VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extendedDynamicStateFeatures = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT,
+			.pNext = &synchronization2Features
+		};
+		VkPhysicalDeviceFeatures2 features = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+			.pNext = &extendedDynamicStateFeatures
+		};
+		vkGetPhysicalDeviceFeatures2(physicalDevices[i], &features);
+
+		if (!dynamicRenderingFeatures.dynamicRendering ||
+		    !synchronization2Features.synchronization2 ||
+		    !extendedDynamicStateFeatures.extendedDynamicState2 ||
+		    !features.features.geometryShader)
+			continue;
+
+		VkPhysicalDeviceProperties deviceProperties;
+		vkGetPhysicalDeviceProperties(physicalDevices[i], &deviceProperties);
+
+		// Since targeting (late) 1.2 as baseline, need to check for support
+		if (deviceProperties.apiVersion < VK_API_VERSION_1_2) continue;
+
+		// Check against previous devices
+		uint32_t currentDeviceScore = getDeviceScore(deviceProperties.deviceType);
+		if (selectedDeviceScore == currentDeviceScore) {
+			if (deviceProperties.limits.maxImageDimension2D < selectedDeviceMaxImage) {
+				continue;
+			}
+
+			VkPhysicalDeviceMemoryProperties deviceMemoryProperties;
+			vkGetPhysicalDeviceMemoryProperties(physicalDevices[i], &deviceMemoryProperties);
+
+			for (uint32_t j = 0; j < deviceMemoryProperties.memoryHeapCount; ++j) {
+				if (deviceMemoryProperties.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+					if (deviceMemoryProperties.memoryHeaps[j].size > selectedVRAM) {
+						selectedVRAM = deviceMemoryProperties.memoryHeaps[j].size;
+						selectedDeviceIndex = i;
+						selectedDeviceScore = currentDeviceScore;
+						selectedDeviceMaxImage = deviceProperties.limits.maxImageDimension2D;
+					}
+				}
+			}
+			// Maybe add more checks?
+		} else if (selectedDeviceScore < currentDeviceScore) {
+			VkPhysicalDeviceMemoryProperties deviceMemoryProperties;
+			vkGetPhysicalDeviceMemoryProperties(physicalDevices[i], &deviceMemoryProperties);
+
+			uint32_t currentVRAM = 0;
+			for (uint32_t j = 0; j < deviceMemoryProperties.memoryHeapCount; ++j) {
+				if (deviceMemoryProperties.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+					if (deviceMemoryProperties.memoryHeaps[j].size > currentVRAM) {
+						currentVRAM = deviceMemoryProperties.memoryHeaps[j].size;
+					}
+				}
+			}
+			currentVRAM = selectedVRAM;
+			selectedDeviceScore = currentDeviceScore;
+			selectedDeviceIndex = i;
+		}
+	}
+	physicalDevice = physicalDevices[selectedDeviceIndex];
+}
+
+// Ranks devices for selectPhysicalDevices to give priority if the device type doesn't match, just for convenience
+inline uint32_t getDeviceScore(VkPhysicalDeviceType deviceType) {
+	// Higher is better for some reason
+	switch (deviceType) {
+		case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+			return 3;
+		case VK_PHYSICAL_DEVICE_TYPE_CPU:
+			return 0;
+		case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+			return 4;
+		case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+			return 1;
+		case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+			return 2;
+		default:
+			return 0;
+	}
+}
+
+void createLogicalDevice() {
+	// Same extensions as in the physical device selection function
+	const char *requiredExts[] = {
+		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+		// Extension instead of feature if targeting Vulkan 1.2 as a baseline
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME, // Needed in general
+		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, // Also needed for 1.2
+		VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME, // " "
+	};
+	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamicRenderingFeatures = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+		.dynamicRendering = VK_TRUE
+	};
+	VkPhysicalDeviceSynchronization2FeaturesKHR synchronization2Features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+		.pNext = &dynamicRenderingFeatures,
+		.synchronization2 = VK_TRUE
+	};
+	VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extendedDynamicStateFeatures = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT,
+		.pNext = &synchronization2Features,
+		.extendedDynamicState2 = VK_TRUE
+	};
+	// But not here because they're required by the spec, and 1.2 support was checked
+	VkPhysicalDeviceVulkan12Features vulkan12Features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		.pNext = &extendedDynamicStateFeatures,
+		.timelineSemaphore = VK_TRUE
+	};
+	VkPhysicalDeviceVulkan11Features vulkan11Features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+		&vulkan12Features,
+		.shaderDrawParameters = VK_TRUE
+	};
+	VkPhysicalDeviceFeatures2 features = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = &vulkan11Features
+	};
+
+	uint32_t queueFamilyPropertyCount;
+	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertyCount, NULL);
+	VkQueueFamilyProperties *queueFamilyProperties = malloc(queueFamilyPropertyCount * sizeof *queueFamilyProperties);
+	if (!queueFamilyProperties) handleError()
+	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertyCount, queueFamilyProperties);
+
+	for (uint32_t i = 0; i < queueFamilyPropertyCount; ++i) {
+		VkBool32 presentSupported;
+		vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupported);
+		if (!presentSupported) continue;
+		if (queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			qfIndex = i;
+			break;
+		}
+	}
+
+	float qfPriorities[] = {1.0f};
+	VkDeviceQueueCreateInfo queueCI = {
+		.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+		.queueFamilyIndex = qfIndex,
+		.pQueuePriorities = qfPriorities,
+		.queueCount = 1
+	};
+	VkDeviceCreateInfo deviceCI = {
+		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+		.pNext = &features,
+		.enabledExtensionCount = sizeof requiredExts / sizeof *requiredExts,
+		.ppEnabledExtensionNames = requiredExts,
+		.pQueueCreateInfos = &queueCI,
+		.queueCreateInfoCount = 1
+	};
+	if (vkCreateDevice(physicalDevice, &deviceCI, NULL, &device) != VK_SUCCESS) handleError(15);
+
+	free()
 }
 
 #endif //LOUNGINE_INIT_H

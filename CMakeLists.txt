@@ -13,11 +13,11 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(volk)
 add_executable(loungine
-        src/renderer/getHandles.h
         src/renderer/main.c
         src/renderer/vulkan.h
 )
 
+find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED)
 
 target_link_libraries(loungine PRIVATE SDL3::SDL3 volk m)
