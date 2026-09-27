@@ -2,6 +2,13 @@
 #define LOUNGINE_VULKAN_H
 
 // Preprocessor Constants
+#include <SDL2/SDL_video.h>
+#include <cstddef>
+#include <cstdlib>
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <vulkan/vulkan_core.h>
 #define APP_NAME "Untitled"
 #define APP_VERSION 0
 #define ENGINE_NAME "loungine"
@@ -17,8 +24,13 @@
 // Includes
 #include <volk.h>
 
+#ifndef SDL3
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_vulkan.h>
+#else
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
+#endif
 
 #include <cglm/struct.h>
 
@@ -37,7 +49,11 @@ VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 VkSurfaceKHR surface = VK_NULL_HANDLE;
 uint32_t qfIndex = UINT32_MAX;
 VkDevice device = VK_NULL_HANDLE;
+VkQueue queue = VK_NULL_HANDLE;
+VkSwapchainKHR swapchain = VK_NULL_HANDLE;
 
+// VLAs
+VkImage *swapchainImages = NULL;
 
 void handleError(int id) {
 
@@ -46,7 +62,5 @@ void handleError(int id) {
 void cleanup();
 
 #include "init.h"
-
-
 
 #endif //LOUNGINE_VULKAN_H
