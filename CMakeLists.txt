@@ -14,7 +14,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(volk)
 add_executable(loungine
         src/renderer/main.c
-        src/renderer/vulkan.h
+        src/renderer/init.c
 )
 
 find_package(Vulkan REQUIRED)

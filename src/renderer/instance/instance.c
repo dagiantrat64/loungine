@@ -1,7 +1,24 @@
-#ifndef LOUNGINE_INIT_H
-#define LOUNGINE_INIT_H
+#include "instance.h"
 
-inline uint32_t getDeviceScore(VkPhysicalDeviceType deviceType);
+uint32_t startWidth = 1280;
+uint32_t startHeight = 720;
+SDL_Window *window = NULL;
+
+// Vulkan objects
+VkInstance instance = VK_NULL_HANDLE;
+VkPhysicalDevice *physicalDevices = NULL;
+VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+VkSurfaceKHR surface = VK_NULL_HANDLE;
+uint32_t qfIndex = UINT32_MAX;
+VkDevice device = VK_NULL_HANDLE;
+VkQueue queue = VK_NULL_HANDLE;
+VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+uint32_t swapchainImageCount = 0;
+
+VkImage *swapchainImages = NULL;
+
+static uint32_t getDeviceScore(VkPhysicalDeviceType deviceType);
 
 void createInstance() {
 	// load standard pfns
@@ -18,7 +35,7 @@ void createInstance() {
 
 	uint32_t extensionCount = 0;
 	// Account for SDL2 and SDL3
-	#ifndef SDL3
+	#ifdef SDL2
 	const char **requiredExtensions;
 	if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, requiredExtensions)) handleError(42);
 	#else
@@ -81,17 +98,9 @@ void createWindow() {
 	// init sdl
 	if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) handleError(42);
 	// and actually create the window...
-	#ifndef SDL3
-	SDL_CreateWindow(APP_NAME, 0, 0, startX, startY, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
-	#else
-	window = SDL_CreateWindow(APP_NAME, startX, startY, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
-	#endif
+	window = SDL_CreateWindow(APP_NAME, startWidth, startHeight, SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN);
 	if (!window) handleError(42);
-	#ifndef SDL3
-	if (!SDL_Vulkan_CreateSurface(window, instance, &surface))
-	#else
 	if (!SDL_Vulkan_CreateSurface(window, instance, NULL, &surface)) handleError(42);
-	#endif
 }
 
 void selectPhysicalDevice() {
@@ -179,7 +188,7 @@ void selectPhysicalDevice() {
         uint32_t surfaceFormatCount = 0;
         vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &surfaceFormatCount, NULL);
         if (!surfaceFormatCount) handleError(17);
-        VkSurfaceFormatKHR *surfaceFormats = malloc(surfaceFormatCount * sizeof *surfaceFormats));
+        VkSurfaceFormatKHR *surfaceFormats = malloc(surfaceFormatCount * sizeof *surfaceFormats);
         if (!surfaceFormats) handleError(16);
         vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &surfaceFormatCount, surfaceFormats);
 
@@ -187,8 +196,8 @@ void selectPhysicalDevice() {
         // and add respective color space array if using color space other than nonlinear SRGB
 
         bool formatSupported = false;
-        for (uint32_t i = 0; i < surfaceFormatCount; ++i) {
-            if (surfaceFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB && surfaceFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        for (uint32_t j = 0; j < surfaceFormatCount; ++j) {
+            if (surfaceFormats[j].format == VK_FORMAT_B8G8R8A8_SRGB && surfaceFormats[j].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
                 formatSupported = true;
             }
         }
@@ -237,7 +246,7 @@ void selectPhysicalDevice() {
 }
 
 // Ranks devices for selectPhysicalDevices to give priority if the device type doesn't match, just for convenience
-inline uint32_t getDeviceScore(VkPhysicalDeviceType deviceType) {
+static uint32_t getDeviceScore(VkPhysicalDeviceType deviceType) {
 	// Higher is better for some reason
 	switch (deviceType) {
 		case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
@@ -356,22 +365,47 @@ void createSwapchain() {
         .minImageCount = finalImageCount,
         .imageFormat = VK_FORMAT_B8G8R8A8_SRGB, // NOTE: Set this to format variable when alternate formats found
         .imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-        .imageExtent = (VkExtent2D){startX, startY},
+        .imageExtent = (VkExtent2D){startWidth, startHeight},
         .imageArrayLayers = 1,
         .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .preTransform = surfaceCaps.currentTransform,
         .presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR, // NOTE: Change for VSync on/off
-        .clipped = VK_TRUE, // Turn off if presenting all pixels or reading all pixels before present
+        .clipped = VK_TRUE // Turn off if presenting all pixels or reading all pixels before present
     };
     if (vkCreateSwapchainKHR(device, &swapchainCI, NULL, &swapchain) != VK_SUCCESS) handleError(15);
-
-    // Now we need swapchain images
-    uint32_t swapchainImageCount = 0;
-    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL) != VK_SUCCESS) handleError(17);
-    if (!swapchainImageCount) handleError(17);
-    if (!(swapchainImages = malloc(swapchainImageCount * sizeof *swapchainImages))) handleError(16);
-    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL) != VK_SUCCESS) handleError(17);
 }
 
-#endif //LOUNGINE_INIT_H
+void createSwapchainImages() {
+	if (vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, NULL) != VK_SUCCESS) handleError(17);
+	if (!swapchainImageCount) handleError(17);
+	swapchainImages = malloc(swapchainImageCount * sizeof *swapchainImages);
+	if (!swapchainImages) handleError(16);
+
+	if (vkGetSwapchainImagesKHR(device, swapchain, &swapchainImageCount, swapchainImages) != VK_SUCCESS) handleError(17);
+
+	// Now the image views
+	VkImageViewCreateInfo imageViewCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.subresourceRange = {
+			.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			.levelCount = 1,
+			.layerCount = 1
+			// baseMipLevel and baseArrayLayer unset because default is 0
+		},
+		.components = {
+			.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+			.b = VK_COMPONENT_SWIZZLE_IDENTITY
+		},
+		.format = VK_FORMAT_B8G8R8A8_SRGB // NOTE: Change format to alternate format if necessary when added
+		// image set in loop for each swapchain image
+	};
+
+	for (uint32_t i = 0; i < swapchainImageCount; ++i) {
+		imageViewCreateInfo.image = swapchainImages[i];
+		if (vkCreateImageView(device, &imageViewCreateInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) handleError(15);
+	}
+}

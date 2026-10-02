@@ -4,3 +4,5 @@ Error Codes
 17: API error
 15: Creation error
 5: Device incompatibility error
+
+Descriptor bindings:
