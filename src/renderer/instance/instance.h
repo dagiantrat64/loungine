@@ -14,17 +14,9 @@
 #define VOLK_IMPLEMENTATION
 #define CGLM_CONFIG_CLIP_CONTROL CGLM_CLIP_CONTROL_RH_ZO
 
-// Includes
 #include <volk.h>
-
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h>
-
 #include <cglm/struct.h>
-
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdio.h>
 
 extern uint32_t startWidth; // Currently stuck at 1280x720
 extern uint32_t startHeight;

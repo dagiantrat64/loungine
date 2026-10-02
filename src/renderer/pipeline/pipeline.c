@@ -20,6 +20,7 @@ void createDescriptorSetLayout() {
 }
 
 void createGraphicsPipeline() {
+
 	// For pipeline layout, only need to specify descriptor set layouts & push constant ranges
 	VkPipelineLayoutCreateInfo pipelineLayoutCI = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,

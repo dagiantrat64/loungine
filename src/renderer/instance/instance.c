@@ -1,5 +1,11 @@
 #include "instance.h"
 
+#include <stdlib.h>
+#include <stdbool.h>
+#include <stdio.h>
+
+#include <SDL3/SDL_vulkan.h>
+
 uint32_t startWidth = 1280;
 uint32_t startHeight = 720;
 SDL_Window *window = NULL;

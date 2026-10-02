@@ -6,3 +6,6 @@ Error Codes
 5: Device incompatibility error
 
 Descriptor bindings:
+
+Instructions:
+Place all model files (.obj) into the assets/models folder.
