@@ -1,11 +1,27 @@
-Error Codes
+Error Codes:
 16: General allocation error
 42: Windowing error
 17: API error
 15: Creation error
-5: Device incompatibility error
+ 5: (Physical) Device incompatibility error
+44: File read error
+22: File write error
+90: File mismatch error
 
 Descriptor bindings:
 
 Instructions:
 Place all model files (.obj) into the assets/models folder.
+
+Asset format:
+Assets are not loaded at runtime as their initial format and are instead compiled into a format into what is essentially
+a large binary blob.
+The asset format is composed of a header, information table with each entry corresponding to an asset, and the assets
+themselves which are represented by an array of vertex data (as described by Vertex type defined in src/vertex.h). The
+information stored within can be visualized as such:
+
+|Header: |Entry #1:   |Entry #2:   |...|Entry #n:   |Asset #1:   |Asset #2:   |...|Asset #n:   |EOF
+|n assets|offset, size|offset, size|   |offset, size|Vertex[size]|Vertex[size]|   |Vertex[size]|
+                                                    ^offset from         ^size     ^Vertex type from src/vertex.h
+                                                    Entry #1             from
+                                                                         Entry #2

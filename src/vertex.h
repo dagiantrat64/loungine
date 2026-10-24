@@ -5,8 +5,8 @@
 
 typedef struct {
 	vec3s pos;
-	vec3s normal;
-	vec3s uv;
+	vec3s norm;
+	vec2s uv;
 } Vertex;
 
 typedef struct {

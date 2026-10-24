@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-static long readFile(const char *restrict path, char **restrict buf) {
+static long readFile(const char *path, char *buf) {
 	if (!buf) return -1;
 	if (!path) return -1;
 
-	*buf = NULL;
+	buf = NULL;
 	FILE *fPtr = fopen(path, "rb");
 	if (!fPtr) return -1;
 
@@ -26,13 +26,13 @@ static long readFile(const char *restrict path, char **restrict buf) {
 		goto cleanup;
 	}
 
-	*buf = malloc(size);
-	if (!*buf) {
+	buf = malloc(size);
+	if (!buf) {
 		goto cleanup;
 	}
-	if (fread(*buf, 1, size, fPtr) != size) {
-		free(*buf);
-		*buf = NULL;
+	if (fread(buf, 1, size, fPtr) != size) {
+		free(buf);
+		buf = NULL;
 		goto cleanup;
 	}
 
@@ -45,7 +45,7 @@ static long readFile(const char *restrict path, char **restrict buf) {
 		return -1;
 }
 
-static bool writeFile(const char *restrict path, char *restrict buf, const size_t size) {
+static bool writeFile(const char *path, char *buf, const size_t size) {
 	if (!buf) return false;
 	if (!path) return false;
 

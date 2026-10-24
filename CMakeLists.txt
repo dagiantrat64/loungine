@@ -16,6 +16,8 @@ add_executable(assetCompile
         src/assetCompile/tinyobj/tobj_tess.c
 )
 
+target_compile_definitions(assetCompile PRIVATE TOBJ_ENABLE_FILE_IO)
+
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED)
 find_package(volk REQUIRED)

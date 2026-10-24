@@ -3,6 +3,7 @@
 
 #include "../instance/instance.h"
 
+extern VkBuffer VertexBuffer;
 extern VkDescriptorSetLayout descriptorSet;
 
 

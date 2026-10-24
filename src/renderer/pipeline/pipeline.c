@@ -1,5 +1,7 @@
 #include "pipeline.h"
 
+#include "../../handleError.h"
+
 VkDescriptorSetLayout descriptorSet = VK_NULL_HANDLE;
 
 void createDescriptorSetLayout() {

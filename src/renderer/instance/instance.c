@@ -1,28 +1,39 @@
+#include <stdint.h>
+#define VOLK_IMPLEMENTATION
 #include "instance.h"
 
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdio.h>
+#include "../../handleError.h"
 
-#include <SDL3/SDL_vulkan.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 uint32_t startWidth = 1280;
 uint32_t startHeight = 720;
 SDL_Window *window = NULL;
+VkBool32 dedicatedTransferQueue = VK_FALSE;
 
 // Vulkan objects
 VkInstance instance = VK_NULL_HANDLE;
 VkPhysicalDevice *physicalDevices = NULL;
 VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 VkSurfaceKHR surface = VK_NULL_HANDLE;
-uint32_t qfIndex = UINT32_MAX;
+uint32_t graphicsQfIndex = UINT32_MAX;
+uint32_t transferQfIndex = UINT32_MAX;
 VkDevice device = VK_NULL_HANDLE;
-VkQueue queue = VK_NULL_HANDLE;
+VkQueue graphicsQueue = VK_NULL_HANDLE;
+VkQueue transferQueue = VK_NULL_HANDLE;
 VkSwapchainKHR swapchain = VK_NULL_HANDLE;
 VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-uint32_t swapchainImageCount = 0;
+VkCommandPool transferCommandPool = VK_NULL_HANDLE;
+VkCommandBuffer transferCmdBuf = VK_NULL_HANDLE;
 
+// VLAs
+VkImageView *swapchainImageViews = NULL;
+uint32_t swapchainImageCount = 0;
 VkImage *swapchainImages = NULL;
+
+// Convenient handles
+VkPhysicalDeviceMemoryProperties memProps = {};
 
 static uint32_t getDeviceScore(VkPhysicalDeviceType deviceType);
 
@@ -249,6 +260,10 @@ void selectPhysicalDevice() {
 		}
 	}
 	physicalDevice = physicalDevices[selectedDeviceIndex];
+	
+	// Get convenient handles to avoid repetitive calls
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+	
 }
 
 // Ranks devices for selectPhysicalDevices to give priority if the device type doesn't match, just for convenience
@@ -317,22 +332,31 @@ void createLogicalDevice() {
 	if (!queueFamilyProperties) handleError(16);
 	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyPropertyCount, queueFamilyProperties);
 
-	// ...and find one that supports graphics
+	// ...and find one that supports graphics...
 
 	for (uint32_t i = 0; i < queueFamilyPropertyCount; ++i) {
 		VkBool32 presentSupported;
 		vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupported);
 		if (!presentSupported) continue;
 		if (queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-			qfIndex = i;
+			graphicsQfIndex = i;
+			break;
+		}
+	} // No check b/c it'll throw an exception anyway and also super uncommon for there to be no graphics queue w/ present support
+	
+	// ...and dedicated as transfer.
+	for (uint32_t i = 0; i < queueFamilyPropertyCount; ++i) {
+		if ((queueFamilyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) && !(queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+			graphicsQfIndex = i;
 			break;
 		}
 	}
+	
 
 	float qfPriorities[] = {1.0f};
 	VkDeviceQueueCreateInfo queueCI = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-		.queueFamilyIndex = qfIndex,
+		.queueFamilyIndex = graphicsQfIndex,
 		.pQueuePriorities = qfPriorities,
 		.queueCount = 1
 	};
@@ -347,8 +371,19 @@ void createLogicalDevice() {
 	};
 	if (vkCreateDevice(physicalDevice, &deviceCI, NULL, &device) != VK_SUCCESS) handleError(15);
 	// Queue is acquired, not created, and therefore no function return code, just check if non-null.
-	vkGetDeviceQueue(device, qfIndex, 0, &queue);
-	if (!queue) handleError(15);
+	vkGetDeviceQueue(device, graphicsQfIndex, 0, &graphicsQueue);
+	if (!graphicsQueue) handleError(15);
+	// Check if a new queue is needed. UINT32_MAX is sentinel for no dedicated QFs found
+	if (transferQfIndex == UINT32_MAX) {
+		transferQfIndex = graphicsQfIndex;
+		transferQueue = graphicsQueue;
+		// Indicate there is no dedicated queue to avoid unnecessary operations
+		// why do i keep writing these comments
+		dedicatedTransferQueue = VK_FALSE;
+	} else { // No check for matching index between the 2 b/c different type is guaranteed
+		vkGetDeviceQueue(device, transferQfIndex, 0, &transferQueue);
+		dedicatedTransferQueue = VK_TRUE;
+	}
 
 	// Load PFNs from Volk
 	volkLoadDevice(device);
@@ -414,4 +449,21 @@ void createSwapchainImages() {
 		imageViewCreateInfo.image = swapchainImages[i];
 		if (vkCreateImageView(device, &imageViewCreateInfo, NULL, &swapchainImageViews[i]) != VK_SUCCESS) handleError(15);
 	}
+}
+
+void createTransferCommandBuffer() {
+	VkCommandPoolCreateInfo transferCommandPoolCI = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.queueFamilyIndex = transferQfIndex
+		// No flags yet but maybe add with more research
+	};
+	vkCreateCommandPool(device, &transferCommandPoolCI, NULL, &transferCommandPool);
+	
+	VkCommandBufferAllocateInfo transferCmdBufAllocInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.commandPool = transferCommandPool,
+		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandBufferCount = 1
+	};
+	vkAllocateCommandBuffers(device, &transferCmdBufAllocInfo, &transferCmdBuf);
 }
