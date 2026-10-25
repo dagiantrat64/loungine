@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 extern VkBuffer vertexBuffer;
+extern VkBuffer indexBuffer;
 extern uint32_t assetCount;
 
 uint32_t *loadScene(char *file);

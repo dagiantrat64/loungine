@@ -3,6 +3,7 @@
 #include "assetLoad.h"
 
 #include "../../handleError.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "../memory.h"
 
 VkBuffer vertexBuffer = VK_NULL_HANDLE;
+VkBuffer indexBuffer = VK_NULL_HANDLE;
 VkBuffer stagingBuffer = VK_NULL_HANDLE;
 VkDeviceMemory stagingBufMemory = VK_NULL_HANDLE;
 VkDeviceMemory vertBufMemory = VK_NULL_HANDLE;
@@ -71,15 +73,39 @@ void copyToVertexBuffer(uint32_t size) {
 	};
 	vkBeginCommandBuffer(transferCmdBuf, &transferCmdBufBeginInfo);
 	
+	uint32_t copyRegionSize = assetCount * sizeof(VkBufferCopy);
+	VkBufferCopy *vBufCopyRegions = malloc(copyRegionSize);
+	VkBufferCopy *iBufCopyRegions = malloc(copyRegionSize);
 	
+	// Save current destination offset in bytes
+	uint32_t currentOffset = 0;
 	for (uint32_t i = 0; i < assetCount; ++i) {
+		vBufCopyRegions[i] = (VkBufferCopy){
+			.srcOffset = offsetTable[i].offset,
+			.dstOffset = currentOffset,
+			.size = offsetTable[i].vDataSize
+		};
+		currentOffset += offsetTable[i].vDataSize;
+	}
 		
+	currentOffset = 0;
+	for (uint32_t i = 0; i < assetCount; ++i) {
+		vBufCopyRegions[i] = (VkBufferCopy){
+			.srcOffset = offsetTable[i].offset,
+			.dstOffset = currentOffset,
+			.size = offsetTable[i].iDataSize
+		};
+		currentOffset += offsetTable[i].iDataSize;
 	}
 	
-	vkCmdCopyBuffer(transferCmdBuf, stagingBuffer, vertexBuffer, )
+	vkCmdCopyBuffer(transferCmdBuf, stagingBuffer, vertexBuffer, assetCount, vBufCopyRegions);
+	vkCmdCopyBuffer(transferCmdBuf, stagingBuffer, indexBuffer, assetCount, iBufCopyRegions);
 	
 	VkBufferMemoryBarrier2 memoryBarrier = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+		.buffer = vertexBuffer,
+		.srcStageMask = VK_ACCESS_2_VERTEX
+		.srcAccessMask = VK_ACCESS_2_
 	};
 	
 	handleError(15);
@@ -105,8 +131,6 @@ uint32_t *loadAssetGroup(char *file) {
 	if (!stagingBufMapped) handleError(17);
 	
 	fread(stagingBufMapped, sceneTotalSize, 1, fPtr);
-	
-	
 }
 
 /*
